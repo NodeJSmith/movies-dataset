@@ -30,7 +30,7 @@ def get_username_password():
 
 def get_tokens():
     access_token, id_token = LOCAL_STORAGE.getItem(ACCESS_TOKEN_KEY), LOCAL_STORAGE.getItem(ID_TOKEN_KEY)
-    if access_token or not id_token:
+    if access_token and id_token:
         return access_token, id_token
 
     return False
