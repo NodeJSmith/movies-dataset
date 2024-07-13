@@ -4,46 +4,131 @@ import pandas as pd
 import streamlit as st
 from inflection import humanize
 from otf_api import Api
+from streamlit_local_storage import LocalStorage
 
-st.set_page_config(page_title="OTF API")
-st.session_state.username = ""
-st.session_state.password = ""
+st.set_page_config(page_title="OTF API", layout="wide")
 
-empty_form = st.empty()
-login_form = empty_form.form("my_form")
-username = login_form.text_input("Username")
-password = login_form.text_input("Password", type="password")
-submit = login_form.form_submit_button("Submit")
+LOCAL_STORAGE = LocalStorage()
+ACCESS_TOKEN_KEY = "access_token"
+ID_TOKEN_KEY = "id_token"
+USERNAME_KEY = "username"
+PASSWORD_KEY = "password"
 
-if submit:
-    st.session_state.username = username
-    st.session_state.password = password
-    empty_form.empty()
+header = st.header("Welcome to the OTF API")
+CONTAINER = st.container()
+LOGIN_PAGE_EMPTY = CONTAINER.empty()
+LOGIN_FORM_EMPTY = LOGIN_PAGE_EMPTY.empty()
 
 
-async def main():
-    # Show the page title and description.
+def get_username_password():
+    username, password = st.session_state.get(USERNAME_KEY), st.session_state.get(PASSWORD_KEY)
+    if username and password:
+        return username, password
 
-    st.write("# Welcome to the OTF API")
-    st.write("Login to the OTF API to get your member and home studio information")
+    return False
 
-    while st.session_state.password == "":
-        await asyncio.sleep(1)
 
-    empty = st.empty()
-    empty.status("Logging in...")
+def get_tokens():
+    access_token, id_token = LOCAL_STORAGE.getItem(ACCESS_TOKEN_KEY), LOCAL_STORAGE.getItem(ID_TOKEN_KEY)
+    if access_token or not id_token:
+        return access_token, id_token
+
+    return False
+
+
+def store_tokens(otf: Api):
+    LOCAL_STORAGE.setItem(ID_TOKEN_KEY, otf.user.cognito.id_token, key=ID_TOKEN_KEY)
+    LOCAL_STORAGE.setItem(ACCESS_TOKEN_KEY, otf.user.cognito.access_token, key=ACCESS_TOKEN_KEY)
+    LOCAL_STORAGE.setItem(USERNAME_KEY, otf.user.id_claims_data.email, key=USERNAME_KEY)
+
+
+def get_username_from_session_or_local_storage():
+    return st.session_state.get(USERNAME_KEY) or LOCAL_STORAGE.getItem(USERNAME_KEY)
+
+
+def get_credential_kwargs():
+    if get_username_password():
+        username, password = get_username_password()
+        return {"username": username, "password": password}
+
+    if get_tokens():
+        access_token, id_token = get_tokens()
+        return {"access_token": access_token, "id_token": id_token}
+
+    return {}
+
+
+def show_form():
+    if not get_credential_kwargs():
+        login_form = LOGIN_FORM_EMPTY.form("login")
+        login_form.text_input("Username", key=USERNAME_KEY)
+        login_form.text_input("Password", type="password", key=PASSWORD_KEY)
+        submit = login_form.form_submit_button("Submit")
+
+        if submit:
+            LOGIN_FORM_EMPTY.empty()
+
+
+def get_all_cookies():
+    """
+    WARNING: We use unsupported features of Streamlit
+            However, this is quite fast and works well with
+            the latest version of Streamlit (1.27)
+    RETURNS:
+    Returns the cookies as a dictionary of kv pairs
+    """
+    # https://github.com/streamlit/streamlit/pull/5457
+    from urllib.parse import unquote
+
+    from streamlit.web.server.websocket_headers import _get_websocket_headers
+
+    headers = _get_websocket_headers()
+
+    if headers is None:
+        return {}
+
+    if "Cookie" not in headers:
+        return {}
+
+    cookie_string = headers["Cookie"]
+    # A sample cookie string: "K1=V1; K2=V2; K3=V3"
+    cookie_kv_pairs = cookie_string.split(";")
+
+    cookie_dict = {}
+    for kv in cookie_kv_pairs:
+        k_and_v = kv.split("=")
+        k = k_and_v[0].strip()
+        v = k_and_v[1].strip()
+        cookie_dict[k] = unquote(v)  # e.g. Convert name%40company.com to name@company.com
+    return cookie_dict
+
+
+async def handle_login() -> Api:
+    if not get_credential_kwargs():
+        LOGIN_PAGE_EMPTY.write("Login to the OTF API to get your member and home studio information")
+        show_form()
+        while not get_credential_kwargs():
+            await asyncio.sleep(1)
+    else:
+        username = LOCAL_STORAGE.getItem(USERNAME_KEY) or st.session_state.get(USERNAME_KEY)
+        LOGIN_PAGE_EMPTY.status(f"Refreshing session for {username} and getting your upcoming classes...")
+
     try:
-        otf = await Api.create(st.session_state.username, st.session_state.password)
+        otf = await Api.create(**get_credential_kwargs())
+        store_tokens(otf)
 
     except Exception as e:
         st.write(f"Error: {e}")
-        return
+        LOGIN_PAGE_EMPTY.status(f"Error: {e}", state="error")
+        raise e
 
-    empty.status("Logged in!", state="complete")
-    empty.empty()
+    LOGIN_PAGE_EMPTY.status(f"Logged in as {otf.member.first_name}!", state="complete")
+    LOGIN_PAGE_EMPTY.empty()
 
-    st.write(f"Thanks for logging in {otf.member.first_name}!")
+    return otf
 
+
+async def show_upcoming_classes(otf: Api):
     bookings = await otf.get_bookings()
     records = []
     for class_ in bookings.bookings:
@@ -59,11 +144,19 @@ async def main():
             }
         )
 
-    st.header("Upcoming Classes")
+    CONTAINER.write("### Upcoming Classes")
     df = pd.DataFrame.from_records(records)
-    df = df.rename(columns=humanize)
+    df = df.rename(columns=humanize).rename(columns=str.title)
 
-    st.dataframe(df, hide_index=True)
+    CONTAINER.table(df)
+
+
+async def main():
+    otf = await handle_login()
+
+    await show_upcoming_classes(otf)
+
+    # await otf._close_session()
 
 
 if __name__ == "__main__":

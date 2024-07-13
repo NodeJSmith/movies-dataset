@@ -1,3 +1,5 @@
 streamlit
-otf-api==0.3.0
+# otf-api==0.3.0
+otf-api @ git+https://github.com/nodejsmith/otf-api@feature/create_by_token
 inflection==0.5.1
+streamlit-local-storage==0.0.23
