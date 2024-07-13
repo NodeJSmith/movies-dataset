@@ -63,7 +63,7 @@ async def main():
     df = pd.DataFrame.from_records(records)
     df = df.rename(columns=humanize)
 
-    st.dataframe(df)
+    st.dataframe(df, hide_index=True)
 
 
 if __name__ == "__main__":
