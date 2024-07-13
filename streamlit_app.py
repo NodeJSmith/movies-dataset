@@ -14,7 +14,7 @@ ID_TOKEN_KEY = "id_token"
 USERNAME_KEY = "username"
 PASSWORD_KEY = "password"
 
-header = st.header("Welcome to the OTF API")
+header = st.header("Welcome to the OTF API Playground")
 CONTAINER = st.container()
 LOGIN_PAGE_EMPTY = CONTAINER.empty()
 LOGIN_FORM_EMPTY = LOGIN_PAGE_EMPTY.empty()
