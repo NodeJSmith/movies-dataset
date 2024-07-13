@@ -1,6 +1,8 @@
 import asyncio
 
+import pandas as pd
 import streamlit as st
+from inflection import humanize
 from otf_api import Api
 
 st.set_page_config(page_title="OTF API")
@@ -42,17 +44,29 @@ async def main():
 
     st.write(f"Thanks for logging in {otf.member.first_name}!")
 
-    st.text(otf.member)
-    st.text(otf.home_studio)
+    bookings = await otf.get_bookings()
+    records = []
+    for class_ in bookings.bookings:
+        otf_class = class_.otf_class
+        records.append(
+            {
+                "start_date": otf_class.starts_at_local,
+                "duration": otf_class.duration,
+                "class_name": otf_class.name,
+                "studio_name": otf_class.studio.studio_name,
+                "coach": otf_class.coach.name,
+                "status": class_.status,
+            }
+        )
+
+    st.header("Upcoming Classes")
+    df = pd.DataFrame.from_records(records)
+    df = df.rename(columns=humanize)
+
+    st.dataframe(df)
 
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("Closing Loop")
-        loop.close()
+    asyncio.run(main())
